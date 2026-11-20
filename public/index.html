@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#14110e">
+  <title>Tactics Run</title>
+  <link rel="stylesheet" href="/css/main.css">
+</head>
+<body data-mode="boot">
+  <div id="stage">
+    <canvas id="view"></canvas>
+    <div id="markers"></div>
+    <div id="floaters"></div>
+    <div id="combo" class="combo" aria-live="assertive"></div>
+    <p id="inspect" class="inspect"></p>
+  </div>
+
+  <section id="lobby" class="sheet">
+    <div id="gate" class="card">
+      <p class="kicker">Grey March</p>
+      <h1>Tactics Run</h1>
+      <p class="lede">One unit each. A seeded march of fights, stalls, and a gatehouse at the end. If the whole company goes down, the run is over.</p>
+      <label for="name">Your name</label>
+      <input id="name" maxlength="14" autocomplete="nickname" placeholder="Ash">
+      <div class="row">
+        <button id="btn-host" class="primary" type="button">Host a run</button>
+      </div>
+      <form id="join-form">
+        <label for="code">Room code</label>
+        <div class="row">
+          <input id="code" maxlength="4" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ABCD" inputmode="text">
+          <button id="btn-join" type="submit">Join</button>
+        </div>
+      </form>
+      <p id="conn" class="status">Connecting…</p>
+    </div>
+    <div id="room" class="card hidden">
+      <p class="kicker">Room</p>
+      <div class="code-row">
+        <h2 id="room-code">----</h2>
+        <button id="btn-copy" type="button">Copy</button>
+      </div>
+      <p class="fine">Read the code out. Up to four players. Duplicate classes are fine. More of you, meaner the march.</p>
+      <ul id="roster"></ul>
+      <div id="classes" class="classes"></div>
+      <label for="seed">Seed <span class="opt">optional, for a rematch</span></label>
+      <input id="seed" maxlength="24" autocomplete="off" spellcheck="false" placeholder="blank deals a new march">
+      <button id="btn-start" class="primary" type="button">Begin the march</button>
+      <button id="btn-help" class="ghost" type="button">Combos and how a round works</button>
+    </div>
+  </section>
+
+  <section id="map" class="sheet hidden">
+    <header class="map-head">
+      <div>
+        <p class="kicker">The march</p>
+        <h2>Grey March</h2>
+        <p id="map-seed" class="fine"></p>
+      </div>
+      <p id="map-gold" class="gold">0 coin</p>
+    </header>
+    <div id="map-party" class="party-strip"></div>
+    <div id="map-board"></div>
+    <p id="map-feed" class="fine feed"></p>
+    <button id="map-help" class="ghost" type="button">Combos</button>
+  </section>
+
+  <header id="battle-top" class="hidden">
+    <div class="phase-block">
+      <p id="phase-label">Party phase</p>
+      <p id="phase-sub" class="fine"></p>
+    </div>
+    <div id="party-chips"></div>
+    <p id="battle-code" class="pill"></p>
+  </header>
+
+  <section id="battle-dock" class="hidden">
+    <div id="me-card">
+      <div class="who">
+        <strong id="me-name">You</strong>
+        <span id="me-class"></span>
+      </div>
+      <div class="meters">
+        <div class="meter"><span class="meter-label">HP</span><div class="bar hp"><span id="me-hp"></span></div><em id="me-hp-n"></em></div>
+        <div class="meter"><span class="meter-label">MP</span><div class="bar mp"><span id="me-mp"></span></div><em id="me-mp-n"></em></div>
+      </div>
+      <p id="me-meta" class="fine"></p>
+      <div id="me-statuses" class="pips"></div>
+    </div>
+    <div id="abilities" class="abilities"></div>
+    <p id="ability-help" class="fine"></p>
+    <div class="tool-row">
+      <button id="btn-undo" type="button">Undo move</button>
+      <button id="btn-rotate" type="button">Rotate</button>
+      <button id="btn-zin" type="button" aria-label="Zoom in">+</button>
+      <button id="btn-zout" type="button" aria-label="Zoom out">−</button>
+      <button id="btn-battle-help" type="button">Combos</button>
+    </div>
+    <button id="btn-end" class="primary end" type="button">End Turn</button>
+    <ol id="log"></ol>
+  </section>
+
+  <section id="overlay" class="sheet hidden">
+    <div id="overlay-card" class="card"></div>
+  </section>
+
+  <section id="help" class="sheet hidden">
+    <div class="card help-card">
+      <div class="row spread">
+        <h2>Field notes</h2>
+        <button id="help-close" type="button">Close</button>
+      </div>
+      <div id="help-body"></div>
+    </div>
+  </section>
+
+  <div id="toasts"></div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "/vendor/three/build/three.module.js",
+      "three/addons/": "/vendor/three/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>
