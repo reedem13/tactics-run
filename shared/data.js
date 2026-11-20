@@ -14,6 +14,7 @@ export const PLAYER_NAMES = ['Ash', 'Briar', 'Cade', 'Dune'];
 
 export const HOW_TO = [
   'One unit each, one to four players. Duplicate classes are allowed.',
+  'Fights start with every unit already on a spawn tile. There is no placement step.',
   'Party phase: anyone can go, in any order. Move, use one ability, then End Turn.',
   'Actions land as you take them. Set a status, then let your ally detonate it before the enemy phase.',
   'The notch on a unit is the direction it is facing. Backstabs and flanks hit harder.',

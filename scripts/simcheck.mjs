@@ -1,14 +1,16 @@
 import WebSocket from 'ws';
-import { COMBOS, CLASSES, ENEMIES, encounterRoster, scaleHp } from '../shared/data.js';
+import { ABILITIES, COMBOS, CLASSES, ENEMIES, encounterRoster, scaleHp, unitAbilities } from '../shared/data.js';
 import { makeRng } from '../shared/rng.js';
 import { reachable } from '../shared/grid.js';
 import {
   activationStart,
   createBattle,
   flatTiles,
+  listTargets,
   makeBattle,
   makeUnit,
   moveBudget,
+  moveOptions,
   statusOf,
   syncOutcome,
   tryAct,
@@ -94,6 +96,40 @@ assert(JSON.stringify(solo.tiles) === JSON.stringify(again.tiles), 'map generati
 const boss1 = createBattle({ seed: 4, nodeId: 'boss', tier: 'boss', name: 'Gate', playerCount: 1, party: party(1, 'knight') });
 const boss4 = createBattle({ seed: 4, nodeId: 'boss', tier: 'boss', name: 'Gate', playerCount: 4, party: party(4, 'knight') });
 assert(hp(boss4) > hp(boss1), 'boss should be tougher with four players');
+
+for (const count of [1, 2, 3, 4]) {
+  const field = createBattle({
+    seed: 30 + count,
+    nodeId: `spawn-${count}`,
+    tier: 'battle',
+    name: 'Deploy',
+    playerCount: count,
+    party: party(count, count % 2 ? 'knight' : 'wizard'),
+  });
+  const pads = field.spawns.party;
+  const foes = field.spawns.enemy;
+  assert(pads.length === count, `${count} players should get ${count} spawn pads, got ${pads.length}`);
+  assert(foes.length === field.enemyCount, 'every enemy needs a spawn pad');
+  const seen = new Set();
+  for (const pad of [...pads, ...foes]) {
+    const key = `${pad.x},${pad.z}`;
+    assert(!seen.has(key), `two units were given ${key}`);
+    seen.add(key);
+    const tile = field.tiles.find((entry) => entry.x === pad.x && entry.z === pad.z);
+    assert(tile && tile.type !== 'water', `${key} is not a standing tile`);
+  }
+  const deployed = field.units.filter((unit) => unit.side === 'player');
+  assert(new Set(deployed.map((unit) => unit.id)).size === count, 'player units need distinct ids');
+  deployed.forEach((unit, index) => {
+    assert(unit.id, 'a player unit was created without an id');
+    assert(unit.x === pads[index].x && unit.z === pads[index].z, 'a player was not auto-placed on their pad');
+    assert(moveOptions(field, unit).length > 0, `${count}-player spawn has nowhere to move`);
+  });
+  if (count >= 2) {
+    const gap = Math.min(...pads.slice(1).map((pad, index) => Math.abs(pad.x - pads[index].x)));
+    assert(gap >= 2, `${count} players were deployed on adjacent tiles (${pads.map((pad) => pad.x).join(',')})`);
+  }
+}
 
 {
   const tiles = flatTiles(5, 5);
@@ -380,15 +416,71 @@ function boot(classIds) {
               setTimeout(done, 40);
             });
           }
-          throw new Error(`timeout ${label}: ${messages.map((message) => message.type).join(',')}`);
+          const detail = messages.filter((message) => message.type === 'error').map((message) => message.text).join(' | ');
+          throw new Error(`timeout ${label}: ${messages.map((message) => message.type).join(',')} ${detail}`);
         },
       }));
     });
   }
   try {
     const host = await open();
+    const ally = await open();
     host.send({ type: 'create', name: 'Ash' });
-    const welcome = await host.waitFor((message) => message.type === 'welcome', 'welcome');
+    const hostWelcome = await host.waitFor((message) => message.type === 'welcome', 'host welcome');
+    ally.send({ type: 'join', code: hostWelcome.code, name: 'Briar' });
+    const allyWelcome = await ally.waitFor((message) => message.type === 'welcome', 'ally welcome');
+    assert(allyWelcome.playerId !== hostWelcome.playerId, 'both players got the same id');
+    host.send({ type: 'class', classId: 'wizard' });
+    ally.send({ type: 'class', classId: 'knight' });
+    await host.waitFor((message) => message.type === 'state' && message.state.players.every((player) => player.classId), 'both classes');
+    host.send({ type: 'start', seed: '21' });
+    const march = await ally.waitFor((message) => message.type === 'state' && message.state.phase === 'map', 'march');
+    const opening = march.state.run.nodes.find((node) => nextNodeIds(march.state.run).includes(node.id) && node.type === 'battle');
+    host.send({ type: 'node', nodeId: opening.id });
+    const started = await ally.waitFor((message) => message.type === 'state' && message.state.phase === 'battle', 'first battle');
+    const battle = started.state.battle;
+    const deployed = battle.units.filter((unit) => unit.side === 'player');
+    assert(deployed.length === 2, 'both units should already be on the field');
+    assert(deployed.every((unit, index) => unit.x === battle.spawns.party[index].x && unit.z === battle.spawns.party[index].z), 'auto-place missed a pad');
+    assert(new Set(deployed.map((unit) => `${unit.x},${unit.z}`)).size === 2, 'both players spawned on one tile');
+
+    async function actAs(client, playerId) {
+      const view = await client.waitFor((message) => {
+        const unit = message.state?.battle?.units?.find((entry) => entry.ownerId === playerId);
+        return message.type === 'state' && unit && !unit.moved && !unit.ready;
+      }, `${playerId} turn`);
+      const unit = view.state.battle.units.find((entry) => entry.ownerId === playerId);
+      const step = moveOptions(view.state.battle, unit)[0];
+      assert(step, `${playerId} has no move from the spawn`);
+      client.send({ type: 'move', x: step.x, z: step.z });
+      const moved = await client.waitFor((message) => {
+        const actor = message.state?.battle?.units?.find((entry) => entry.ownerId === playerId);
+        return actor && actor.moved && actor.x === step.x && actor.z === step.z;
+      }, `${playerId} moved`);
+      const actor = moved.state.battle.units.find((entry) => entry.ownerId === playerId);
+      const abilityId = unitAbilities(actor).find((id) => listTargets(moved.state.battle, actor, ABILITIES[id]).length > 0);
+      if (abilityId) {
+        const target = listTargets(moved.state.battle, actor, ABILITIES[abilityId])[0];
+        client.send({ type: 'act', ability: abilityId, x: target.x, z: target.z });
+        await client.waitFor((message) => message.state?.battle?.units?.find((entry) => entry.ownerId === playerId)?.acted, `${playerId} acted`);
+      }
+      client.send({ type: 'end' });
+    }
+    await actAs(host, hostWelcome.playerId);
+    await actAs(ally, allyWelcome.playerId);
+    const finished = await host.waitFor((message) => {
+      const round = message.state?.battle?.round;
+      const phase = message.state?.battle?.phase;
+      return phase === 'victory' || phase === 'defeat' || (phase === 'party' && round >= 2) || phase === 'enemy';
+    }, 'enemy phase');
+    const mirror = await ally.waitFor((message) => message.state?.battle?.round === finished.state.battle.round && message.state?.battle?.phase === finished.state.battle.phase, 'guest caught up');
+    const hostPlaces = finished.state.battle.units.map((unit) => `${unit.id}:${unit.x},${unit.z}:${unit.hp}`).join('|');
+    const allyPlaces = mirror.state.battle.units.map((unit) => `${unit.id}:${unit.x},${unit.z}:${unit.hp}`).join('|');
+    assert(hostPlaces === allyPlaces, 'the two clients diverged after the first party phase');
+
+    const host2 = await open();
+    host2.send({ type: 'create', name: 'Ash' });
+    const welcome = await host2.waitFor((message) => message.type === 'welcome', 'welcome');
     assert(welcome.code.length === 4, 'room code should be 4 characters');
     const joined = [];
     for (const name of ['Briar', 'Cade', 'Dune']) {
@@ -402,21 +494,23 @@ function boot(classIds) {
     const rejected = await extra.waitFor((message) => message.type === 'error', 'full room');
     assert(/full/i.test(rejected.text), 'a fifth player should be refused');
     const guest = joined[0];
-    host.send({ type: 'class', classId: 'wizard' });
+    host2.send({ type: 'class', classId: 'wizard' });
     guest.send({ type: 'class', classId: 'rogue' });
-    await host.waitFor((message) => message.type === 'state' && message.state.players.filter((player) => player.classId).length >= 2, 'classes');
+    await host2.waitFor((message) => message.type === 'state' && message.state.players.filter((player) => player.classId).length >= 2, 'classes');
     const others = joined.slice(1);
     for (const client of others) client.send({ type: 'class', classId: 'knight' });
-    await host.waitFor((message) => message.type === 'state' && message.state.players.every((player) => player.classId), 'all classes');
-    host.send({ type: 'start', seed: '11' });
-    const mapped = await host.waitFor((message) => message.type === 'state' && message.state.phase === 'map', 'map');
+    await host2.waitFor((message) => message.type === 'state' && message.state.players.every((player) => player.classId), 'all classes');
+    host2.send({ type: 'start', seed: '11' });
+    const mapped = await host2.waitFor((message) => message.type === 'state' && message.state.phase === 'map', 'map');
     const node = mapped.state.run.nodes.find((entry) => nextNodeIds(mapped.state.run).includes(entry.id) && entry.type === 'battle');
-    host.send({ type: 'node', nodeId: node.id });
-    const battle = await guest.waitFor((message) => message.type === 'state' && message.state.phase === 'battle', 'battle');
-    const units = battle.state.battle.units;
+    host2.send({ type: 'node', nodeId: node.id });
+    const fullBattle = await guest.waitFor((message) => message.type === 'state' && message.state.phase === 'battle', 'battle');
+    const units = fullBattle.state.battle.units;
     assert(units.some((unit) => unit.classId === 'wizard' && unit.side === 'player'), 'wizard missing');
     assert(units.some((unit) => unit.classId === 'rogue' && unit.side === 'player'), 'rogue missing');
-    assert(battle.state.battle.enemyCount === encounterRoster('battle', 4).length, 'socket battle did not scale to the party');
+    assert(fullBattle.state.battle.enemyCount === encounterRoster('battle', 4).length, 'socket battle did not scale to the party');
+    const ids = fullBattle.state.battle.units.filter((unit) => unit.side === 'player').map((unit) => unit.id);
+    assert(new Set(ids).size === 4, 'four players collapsed onto one unit id');
   } finally {
     for (const ws of sockets) ws.close();
     await app.close();

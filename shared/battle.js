@@ -23,7 +23,7 @@ import {
   tileAt,
   unitAt,
 } from './grid.js';
-import { generateMap, spreadXs } from './map.js';
+import { generateMap, planSpawns } from './map.js';
 import { forkRng } from './rng.js';
 
 export { unitAbilities, knowsAbility };
@@ -83,7 +83,7 @@ export function makeUnit(partial) {
   const maxHp = partial.maxHp ?? partial.hp ?? base.hp ?? 10;
   const maxMp = partial.maxMp ?? partial.mp ?? base.mp ?? 0;
   return {
-    id: partial.id,
+    id: partial.id || (partial.ownerId ? `u-${partial.ownerId}` : ''),
     name: partial.name || kit?.name || classId,
     side: partial.side,
     ownerId: partial.ownerId ?? null,
@@ -179,13 +179,22 @@ export function createBattle({ seed, nodeId, tier, name, playerCount, party }) {
       facing: 2,
     });
   });
-  const players = party.map((src) => makeUnit({ ...src, side: 'player', hp: src.hp, maxHp: src.maxHp }));
-  const xsP = spreadXs(players.length, map.width);
-  const xsE = spreadXs(enemies.length, map.width);
-  players.forEach((unit, i) => placeParty(unit, xsP[i], 0));
+  const players = party.map((src) => makeUnit({
+    ...src,
+    id: `u-${src.ownerId}`,
+    side: 'player',
+    hp: src.hp,
+    maxHp: src.maxHp,
+  }));
+  const spawns = planSpawns(map.tiles, map.width, map.depth, players.length, enemies.length);
+  players.forEach((unit, i) => {
+    const pad = spawns.party[i];
+    placeParty(unit, pad.x, pad.z);
+  });
   enemies.forEach((unit, i) => {
-    unit.x = xsE[i];
-    unit.z = map.depth - 1;
+    const pad = spawns.enemy[i];
+    unit.x = pad.x;
+    unit.z = pad.z;
     unit.facing = 2;
   });
   const battle = {
@@ -198,9 +207,10 @@ export function createBattle({ seed, nodeId, tier, name, playerCount, party }) {
     width: map.width,
     depth: map.depth,
     tiles: map.tiles,
+    spawns,
     frost: {},
     units: [...players, ...enemies],
-    log: [`${name}. Party phase — move, one ability, then End Turn.`],
+    log: [`${name}. Units are deployed. Blue tiles are your move, then one ability, then End Turn.`],
     enemyCount: enemies.length,
     playerCount,
     committed: false,

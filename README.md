@@ -51,7 +51,7 @@ To add another, append an entry with a `when` clause and an `effect`. Effect key
 
 | Action | Desktop | Touch |
 | --- | --- | --- |
-| Move | Click a blue tile | Tap a blue tile |
+| Move | Click a blue tile. Your unit is already deployed when the fight starts | Tap a blue tile. A near miss still counts |
 | Ability | Click the button, then a red tile | Same |
 | End turn | End Turn, Enter, or E | End Turn |
 | Undo a move | Undo, or U, before you act | Undo |

@@ -231,7 +231,7 @@ export function createUi(handlers) {
     const ids = me.downed ? [] : [...unitAbilities(me), ...(downedNear ? ['revive'] : [])];
     const box = $('abilities');
     box.replaceChildren();
-    let help = 'Tap a blue tile to move. Then an ability, then a red tile.';
+    let help = 'You are already deployed. Tap a blue tile to move, then an ability, then a red tile.';
     for (const id of ids) {
       const ability = ABILITIES[id];
       const button = el('button');

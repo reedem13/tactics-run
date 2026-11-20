@@ -15,6 +15,8 @@ let you = null;
 let armed = null;
 let inspectId = null;
 let resuming = false;
+let toldDeployed = false;
+let battleSeen = null;
 const markers = new Map();
 const markerRoot = document.getElementById('markers');
 const floaters = document.getElementById('floaters');
@@ -97,6 +99,10 @@ function layoutStage() {
 }
 
 function refresh() {
+  if (state?.battle?.id !== battleSeen) {
+    battleSeen = state?.battle?.id || null;
+    toldDeployed = false;
+  }
   const view = ui.render(state, you, armed);
   if (view?.field && state?.battle) scene.showBattle(state.battle);
   else scene.showDiorama();
@@ -242,6 +248,13 @@ function updateMarkers() {
   requestAnimationFrame(updateMarkers);
 }
 
+function legalTiles(me, battle) {
+  if (!me || !battle || state.phase !== 'battle' || battle.phase !== 'party' || me.downed || me.ready) return [];
+  if (armed && !me.acted) return listTargets(battle, me, ABILITIES[armed]);
+  if (!me.moved && !me.acted && !armed) return moveOptions(battle, me);
+  return [];
+}
+
 function onPick(hit) {
   if (!state || state.phase !== 'battle' || !state.battle) return;
   const battle = state.battle;
@@ -253,6 +266,10 @@ function onPick(hit) {
     return;
   }
   if (hit.unitId) inspectId = hit.unitId;
+  if (me && hit.unitId === me.id && !armed && !me.moved && !me.acted && !toldDeployed) {
+    toldDeployed = true;
+    ui.toast('You are already deployed. Tap a blue tile to move.');
+  }
   if (me && battle.phase === 'party' && !me.downed && !me.ready && armed && !me.acted) {
     const targets = listTargets(battle, me, ABILITIES[armed]);
     if (targets.some((target) => target.x === hit.x && target.z === hit.z)) {
@@ -273,18 +290,61 @@ function onPick(hit) {
   refresh();
 }
 
+function tapAt(x, y) {
+  const now = performance.now();
+  if (now - tapAt.last < 280) return;
+  tapAt.last = now;
+  const me = myUnit();
+  const tiles = legalTiles(me, state?.battle);
+  const snapped = scene.closest(x, y, tiles, 56);
+  const hit = scene.pick(x, y);
+  if (snapped) {
+    const anchor = me ? scene.anchorOf(me.id) : null;
+    const feet = anchor ? scene.project(anchor, 0.15) : null;
+    const rect = canvas.getBoundingClientRect();
+    const feetD = feet ? Math.hypot(rect.left + feet.x - x, rect.top + feet.y - y) : Infinity;
+    const tile = scene.projectTile(snapped.x, snapped.z);
+    const tileD = tile ? Math.hypot(rect.left + tile.x - x, rect.top + tile.y - y) : Infinity;
+    const tappedSelf = hit?.unitId === me?.id && feetD + 6 < tileD;
+    if (!tappedSelf) {
+      onPick({ x: snapped.x, z: snapped.z, unitId: null });
+      return;
+    }
+  }
+  onPick(hit);
+}
+tapAt.last = 0;
+
+const TAP_SLOP = 32;
 let pointer = null;
-canvas.addEventListener('pointerdown', (event) => {
+const board = document.getElementById('stage');
+
+board.addEventListener('pointerdown', (event) => {
+  if (event.target.closest('#battle-dock, #battle-top, button, input, a')) return;
+  if (event.pointerType === 'touch') event.preventDefault();
+  try { board.setPointerCapture(event.pointerId); } catch { /* already gone, or a synthetic tap */ }
   pointer = { x: event.clientX, y: event.clientY, id: event.pointerId };
-});
-canvas.addEventListener('pointerup', (event) => {
+}, { passive: false });
+
+function finishPointer(event) {
   if (!pointer || pointer.id !== event.pointerId) return;
-  const dx = event.clientX - pointer.x;
-  const dy = event.clientY - pointer.y;
+  const dx = (event.clientX || pointer.x) - pointer.x;
+  const dy = (event.clientY || pointer.y) - pointer.y;
+  const x = pointer.x;
+  const y = pointer.y;
   pointer = null;
-  if (dx * dx + dy * dy > 64) return;
-  onPick(scene.pick(event.clientX, event.clientY));
-});
+  if (dx * dx + dy * dy > TAP_SLOP * TAP_SLOP) return;
+  tapAt(x, y);
+}
+
+board.addEventListener('pointerup', finishPointer);
+board.addEventListener('pointercancel', finishPointer);
+board.addEventListener('touchend', (event) => {
+  if (pointer) return;
+  const touch = event.changedTouches && event.changedTouches[0];
+  if (!touch) return;
+  tapAt(touch.clientX, touch.clientY);
+}, { passive: true });
 canvas.addEventListener('pointermove', (event) => {
   if (state?.phase !== 'battle' || !armed) return;
   const hit = scene.pick(event.clientX, event.clientY);

@@ -91,8 +91,8 @@ export function createScene(canvas) {
         const projected = corner.clone().project(camera);
         maxN = Math.max(maxN, Math.abs(projected.x), Math.abs(projected.y));
       }
-      if (maxN < 0.9) break;
-      pad *= Math.max(1.05, maxN / 0.84);
+      if (maxN < 0.78) break;
+      pad *= Math.max(1.05, maxN / 0.72);
     }
     applyFrustum(pad);
   }
@@ -327,7 +327,7 @@ export function createScene(canvas) {
     const paint = (list, color, opacity, lift) => {
       for (const tile of list) {
         const mesh = new THREE.Mesh(
-          new THREE.PlaneGeometry(0.86, 0.86),
+          new THREE.PlaneGeometry(0.98, 0.98),
           new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false }),
         );
         mesh.rotation.x = -Math.PI / 2;
@@ -347,11 +347,28 @@ export function createScene(canvas) {
     ring.visible = !!selectedId && unitMeshes.has(selectedId);
   }
 
+  function closest(clientX, clientY, tiles, radius = 52) {
+    const rect = canvas.getBoundingClientRect();
+    let best = null;
+    let bestD = radius;
+    for (const tile of tiles || []) {
+      const projected = projectTile(tile.x, tile.z);
+      if (!projected) continue;
+      const dist = Math.hypot(rect.left + projected.x - clientX, rect.top + projected.y - clientY);
+      if (dist <= bestD) {
+        bestD = dist;
+        best = tile;
+      }
+    }
+    return best;
+  }
+
   function pick(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return null;
     pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    camera.updateMatrixWorld(true);
     raycaster.setFromCamera(pointer, camera);
     const hits = raycaster.intersectObjects([...unitMeshes.values(), ...tileMeshes], true);
     for (const hit of hits) {
@@ -444,6 +461,7 @@ export function createScene(canvas) {
     setHighlights,
     setSelected,
     pick,
+    closest,
     project,
     projectTile,
     anchorOf(id) {
